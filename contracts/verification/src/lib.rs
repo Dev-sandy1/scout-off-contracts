@@ -386,4 +386,25 @@ mod tests {
             &String::from_str(&env, "QmEvidence"),
         );
     }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #3)")]
+    fn test_approve_milestone_blocked_when_paused() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let validator = Address::generate(&env);
+        client.register_validator(&validator, &String::from_str(&env, "Coach"));
+
+        client.pause_contract();
+
+        // Should panic — contract is paused
+        client.approve_milestone(
+            &validator,
+            &1u64,
+            &String::from_str(&env, "Some milestone"),
+            &String::from_str(&env, "QmEvidence"),
+        );
+    }
 }
