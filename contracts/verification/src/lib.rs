@@ -164,7 +164,14 @@ impl VerificationContract {
             .persistent()
             .set(&counter_key, &next_index);
 
-        events::milestone_approved(&env, player_id, &validator_wallet);
+        events::milestone_approved(
+            &env,
+            player_id,
+            &validator_wallet,
+            next_index,
+            &milestone.description,
+            &milestone.evidence_hash,
+        );
 
         // Cross-contract call: advance the player's progress level.
         // This is a best-effort call — if the progress contract is not set
@@ -374,3 +381,26 @@ mod tests {
         );
     }
 }
+
+    #[test]
+    fn test_milestone_approved_event_payload() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let validator = Address::generate(&env);
+        client.register_validator(&validator, &String::from_str(&env, "Coach"));
+
+        let description = String::from_str(&env, "Scored hat trick in final");
+        let evidence_hash = String::from_str(&env, "QmHatTrick123");
+        
+        client.approve_milestone(&validator, &1u64, &description, &evidence_hash);
+
+        // Verify the event payload contains all expected fields
+        let events = env.events().all();
+        assert_eq!(events.len(), 2); // validator_registered + milestone_approved
+        
+        let milestone_event = &events[1];
+        assert_eq!(milestone_event.topics.len(), 3); // event name, validator, milestone_index
+        assert_eq!(milestone_event.data.len(), 3); // player_id, description, evidence_hash
+    }

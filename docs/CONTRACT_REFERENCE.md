@@ -40,6 +40,14 @@ Manages the trusted validator registry and milestone approvals.
 | `pause_contract()` / `unpause_contract()` | admin | Circuit breaker |
 | `health()` | — | Returns true if initialized |
 
+### Events
+
+| Event | Topics | Data | Description |
+|-------|--------|------|-------------|
+| `milestone_approved` | event_name, validator_address, milestone_index (u32) | player_id (u64), description (String), evidence_hash (String) | Emitted when a validator approves a player milestone with full milestone details |
+| `validator_registered` | event_name | validator_address | Emitted when a new validator is registered |
+| `validator_revoked` | event_name | validator_address | Emitted when a validator is deactivated |
+
 ---
 
 ## progress
@@ -89,3 +97,4 @@ Handles scout subscriptions, pay-to-contact, and trial offer logging.
 | 1 | `VerifiedIdentity` | Validator approves identity milestone |
 | 2 | `PerformanceMilestones` | Validator approves performance milestone |
 | 3 | `EliteTier` | Scout logs trial offer |
+
