@@ -57,4 +57,6 @@ pub enum DataKey {
     Scout(u64),
     /// Index mapping scout wallet address to scout_id for fast lookup
     ScoutByWallet(Address),
+    /// Index of all player IDs for efficient filtering and iteration
+    PlayerIndex,
 }

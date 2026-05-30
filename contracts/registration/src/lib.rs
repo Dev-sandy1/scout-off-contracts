@@ -104,6 +104,17 @@ impl RegistrationContract {
             .persistent()
             .set(&DataKey::PlayerByWallet(wallet.clone()), &player_id);
 
+        // Add to player index
+        let mut player_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlayerIndex)
+            .unwrap_or_else(|| Vec::new(&env));
+        player_ids.push_back(player_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::PlayerIndex, &player_ids);
+
         events::player_registered(&env, player_id, &wallet);
         Ok(player_id)
     }
@@ -139,6 +150,20 @@ impl RegistrationContract {
         env.storage()
             .persistent()
             .remove(&DataKey::PlayerByWallet(profile.wallet));
+
+        // Remove from player index
+        let mut player_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlayerIndex)
+            .unwrap_or_else(|| Vec::new(&env));
+        if let Some(pos) = player_ids.iter().position(|&id| id == player_id) {
+            player_ids.remove(pos as u32);
+            env.storage()
+                .persistent()
+                .set(&DataKey::PlayerIndex, &player_ids);
+        }
+
         events::player_deregistered(&env, player_id);
         Ok(())
     }
@@ -252,6 +277,43 @@ impl RegistrationContract {
             .unwrap_or(false)
     }
 
+    /// Filter players by region, position, and minimum progress level.
+    /// Returns at most 50 results to bound gas usage.
+    pub fn filter_players(
+        env: Env,
+        region: String,
+        position: String,
+        min_level: ProgressLevel,
+    ) -> Result<Vec<PlayerProfile>, ScoutChainError> {
+        Self::require_initialized(&env)?;
+
+        let player_ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlayerIndex)
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let mut results = Vec::new(&env);
+        let max_results = 50u32;
+
+        for player_id in player_ids.iter() {
+            if results.len() >= max_results {
+                break;
+            }
+
+            if let Ok(profile) = Self::load_player(&env, player_id) {
+                if profile.vitals.region == region
+                    && profile.vitals.position == position
+                    && Self::level_gte(&profile.level, &min_level)
+                {
+                    results.push_back(profile);
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
     // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------
@@ -321,6 +383,22 @@ impl RegistrationContract {
             .instance()
             .set(&DataKey::ScoutCounter, &next);
         Ok(next)
+    }
+
+    fn level_gte(level: &ProgressLevel, min_level: &ProgressLevel) -> bool {
+        match (level, min_level) {
+            (ProgressLevel::Unverified, ProgressLevel::Unverified) => true,
+            (ProgressLevel::VerifiedIdentity, ProgressLevel::Unverified) => true,
+            (ProgressLevel::PerformanceMilestones, ProgressLevel::Unverified) => true,
+            (ProgressLevel::EliteTier, ProgressLevel::Unverified) => true,
+            (ProgressLevel::VerifiedIdentity, ProgressLevel::VerifiedIdentity) => true,
+            (ProgressLevel::PerformanceMilestones, ProgressLevel::VerifiedIdentity) => true,
+            (ProgressLevel::EliteTier, ProgressLevel::VerifiedIdentity) => true,
+            (ProgressLevel::PerformanceMilestones, ProgressLevel::PerformanceMilestones) => true,
+            (ProgressLevel::EliteTier, ProgressLevel::PerformanceMilestones) => true,
+            (ProgressLevel::EliteTier, ProgressLevel::EliteTier) => true,
+            _ => false,
+        }
     }
 }
 
@@ -684,4 +762,56 @@ mod tests {
 
         assert_eq!(client.get_scout_count(), 3);
     }
-}
+
+    // -------------------------------------------------------------------------
+    // Issue #31: filter_players query function
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_filter_players_by_region_and_position() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let hashes = vec![&env, String::from_str(&env, "QmTest")];
+
+        // Player 1: Forward, West Africa
+        let wallet1 = Address::generate(&env);
+        let vitals1 = PlayerVitals {
+            age: 18,
+            position: String::from_str(&env, "Forward"),
+            region: String::from_str(&env, "West Africa"),
+            nationality: String::from_str(&env, "Ghana"),
+        };
+        client.register_player(&wallet1, &vitals1, &hashes);
+
+        // Player 2: Midfielder, West Africa
+        let wallet2 = Address::generate(&env);
+        let vitals2 = PlayerVitals {
+            age: 20,
+            position: String::from_str(&env, "Midfielder"),
+            region: String::from_str(&env, "West Africa"),
+            nationality: String::from_str(&env, "Nigeria"),
+        };
+        client.register_player(&wallet2, &vitals2, &hashes);
+
+        // Player 3: Forward, Europe
+        let wallet3 = Address::generate(&env);
+        let vitals3 = PlayerVitals {
+            age: 19,
+            position: String::from_str(&env, "Forward"),
+            region: String::from_str(&env, "Europe"),
+            nationality: String::from_str(&env, "France"),
+        };
+        client.register_player(&wallet3, &vitals3, &hashes);
+
+        // Filter: Forward in West Africa
+        let results = client.filter_players(
+            &String::from_str(&env, "West Africa"),
+            &String::from_str(&env, "Forward"),
+            &ProgressLevel::Unverified,
+        );
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results.get(0).player_id, 1);
+    }
