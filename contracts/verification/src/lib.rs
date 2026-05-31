@@ -24,9 +24,31 @@ use soroban_sdk::{contract, contractimpl, Address, Env, String};
 // The progress contract must be deployed and its address registered via
 // `set_progress_contract` before `approve_milestone` can advance levels.
 mod progress_contract {
-    soroban_sdk::contractimport!(
-        file = "../../target/wasm32-unknown-unknown/release/scoutchain_progress.wasm"
-    );
+    use scoutchain_shared_types::ProgressLevel;
+    use soroban_sdk::{contractclient, contracterror, Address, Env};
+
+    #[contracterror]
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[repr(u32)]
+    pub enum Error {
+        AlreadyInitialized = 1,
+        NotInitialized = 2,
+        ContractPaused = 3,
+        Unauthorized = 4,
+        InvalidProgressTransition = 5,
+        AlreadyAtMaxLevel = 6,
+        PlayerNotFound = 7,
+    }
+
+    #[contractclient(name = "Client")]
+    pub trait ProgressContractClient {
+        fn advance_level(
+            env: Env,
+            caller: Address,
+            player_id: u64,
+            milestone_ref: u32,
+        ) -> Result<ProgressLevel, Error>;
+    }
 }
 
 #[contract]
@@ -165,6 +187,9 @@ impl VerificationContract {
             .unwrap_or(0u32);
         let next_index = index.checked_add(1).ok_or(VerificationError::Overflow)?;
 
+        let description_for_event = description.clone();
+        let evidence_hash_for_event = evidence_hash.clone();
+
         let milestone = Milestone {
             player_id,
             validator: validator_wallet.clone(),
@@ -188,7 +213,14 @@ impl VerificationContract {
             .persistent()
             .set(&val_key, &(val_count.checked_add(1).expect("overflow")));
 
-        events::milestone_approved(&env, player_id, &validator_wallet);
+        events::milestone_approved(
+            &env,
+            player_id,
+            &validator_wallet,
+            next_index,
+            &description_for_event,
+            &evidence_hash_for_event,
+        );
 
         // Cross-contract call: advance the player's progress level.
         // This is a best-effort call — if the progress contract is not set
@@ -297,11 +329,14 @@ impl VerificationContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env, String};
+    use soroban_sdk::{testutils::{Address as _, Ledger}, Env, String};
 
     fn setup() -> (Env, VerificationContractClient<'static>) {
         let env = Env::default();
         env.mock_all_auths();
+        env.ledger().with_mut(|l| {
+            l.sequence_number = 1;
+        });
         let id = env.register_contract(None, VerificationContract);
         let client = VerificationContractClient::new(&env, &id);
         (env, client)

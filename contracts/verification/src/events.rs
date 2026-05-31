@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, Symbol};
+use soroban_sdk::{Address, Env, String, Symbol};
 
 pub fn milestone_approved(
     env: &Env,

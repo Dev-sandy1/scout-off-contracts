@@ -30,6 +30,8 @@ pub enum DataKey {
     Admin,
     Initialized,
     Paused,
+    /// progress contract address (cross-contract calls)
+    ProgressContract,
     /// validator wallet → Validator
     Validator(Address),
     /// milestone counter per player

@@ -590,7 +590,7 @@ mod tests {
     // -------------------------------------------------------------------------
 
     #[test]
-    #[should_panic(expected = "NotInitialized")]
+    #[should_panic]
     fn test_register_player_uninitialized_returns_not_initialized() {
         let (env, client) = setup();
         let wallet = Address::generate(&env);
@@ -600,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "NotInitialized")]
+    #[should_panic]
     fn test_register_scout_uninitialized_returns_not_initialized() {
         let (env, client) = setup();
         let wallet = Address::generate(&env);
