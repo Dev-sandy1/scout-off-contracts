@@ -200,14 +200,13 @@ impl VerificationContract {
             .get::<DataKey, Address>(&DataKey::ProgressContract)
         {
             let progress_client = progress_contract::Client::new(&env, &progress_addr);
-            // advance_level will return AlreadyAtMaxLevel if the player is
-            // already at EliteTier — we intentionally ignore that error here
-            // so the milestone is still recorded even at max level.
-            let _ = progress_client.try_advance_level(
-                &validator_wallet,
-                &player_id,
-                &next_index,
-            );
+            // AlreadyAtMaxLevel (6) is acceptable — milestone still recorded.
+            // Any other error propagates as ProgressCallFailed.
+            match progress_client.try_advance_level(&validator_wallet, &player_id, &next_index) {
+                Ok(_) => {}
+                Err(Ok(progress_contract::Error::AlreadyAtMaxLevel)) => {}
+                Err(_) => return Err(VerificationError::ProgressCallFailed),
+            }
         }
 
         Ok(next_index)
@@ -526,5 +525,47 @@ mod tests {
 
         let unknown = Address::generate(&env);
         client.get_validator(&unknown);
+    }
+
+    // Minimal stub that always panics — simulates a failing progress contract.
+    mod failing_progress {
+        use soroban_sdk::{contract, contractimpl, Address, Env};
+
+        #[contract]
+        pub struct FailingProgress;
+
+        #[contractimpl]
+        impl FailingProgress {
+            pub fn advance_level(_env: Env, _caller: Address, _player_id: u64, _milestone_ref: u32) {
+                panic!("unexpected error");
+            }
+        }
+    }
+
+    #[test]
+    fn test_approve_milestone_propagates_unexpected_progress_error() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let id = env.register_contract(None, VerificationContract);
+        let client = VerificationContractClient::new(&env, &id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let validator = Address::generate(&env);
+        client.register_validator(&validator, &String::from_str(&env, "Coach"));
+
+        // Register a failing progress contract stub
+        let failing_id = env.register_contract(None, failing_progress::FailingProgress);
+        client.set_progress_contract(&failing_id);
+
+        let result = client.try_approve_milestone(
+            &validator,
+            &1u64,
+            &String::from_str(&env, "milestone"),
+            &String::from_str(&env, "QmEvidence"),
+        );
+        assert_eq!(result, Err(Ok(VerificationError::ProgressCallFailed)));
     }
 }
