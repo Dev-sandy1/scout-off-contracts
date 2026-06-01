@@ -94,7 +94,19 @@ impl ProgressContract {
     ) -> Result<ProgressLevel, ProgressError> {
         Self::require_not_paused(&env)?;
         Self::require_initialized(&env)?;
-        caller.require_auth();
+
+        if let Some(verification_contract) = env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::VerificationContract)
+        {
+            // When configured, only the verification contract may invoke this
+            // function (directly or via cross-contract call). The `caller`
+            // argument still records the validator or scout that triggered it.
+            verification_contract.require_auth();
+        } else {
+            caller.require_auth();
+        }
 
         let current = Self::get_current_level(&env, player_id);
         let new_level = current.next().ok_or(ProgressError::AlreadyAtMaxLevel)?;
