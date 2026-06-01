@@ -241,6 +241,26 @@ mod tests {
     }
 
     #[test]
+    fn test_two_players_advance_independently() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        let validator = Address::generate(&env);
+
+        // Player 1: advance to Level 2 (PerformanceMilestones)
+        client.advance_level(&validator, &1u64, &1u32);
+        client.advance_level(&validator, &1u64, &2u32);
+
+        // Player 2: advance to Level 1 (VerifiedIdentity)
+        client.advance_level(&validator, &2u64, &3u32);
+
+        assert_eq!(client.get_level(&1u64), ProgressLevel::PerformanceMilestones);
+        assert_eq!(client.get_level(&2u64), ProgressLevel::VerifiedIdentity);
+        assert_eq!(client.get_history_count(&1u64), 2);
+        assert_eq!(client.get_history_count(&2u64), 1);
+    }
+
+    #[test]
     fn test_advance_level_sequence() {
         let (env, client) = setup();
         let admin = Address::generate(&env);
