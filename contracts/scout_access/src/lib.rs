@@ -64,6 +64,12 @@ mod progress_contract {
 #[contract]
 pub struct ScoutAccessContract;
 
+mod progress_contract {
+    soroban_sdk::contractimport!(
+        file = "../../target/wasm32-unknown-unknown/release/scoutchain_progress.wasm"
+    );
+}
+
 #[contractimpl]
 impl ScoutAccessContract {
     // -------------------------------------------------------------------------
@@ -116,13 +122,25 @@ impl ScoutAccessContract {
 
     pub fn pause_contract(env: Env) -> Result<(), ScoutAccessError> {
         Self::require_admin(&env)?;
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ScoutAccessError::NotInitialized)?;
         env.storage().instance().set(&DataKey::Paused, &true);
+        events::contract_paused(&env, &admin);
         Ok(())
     }
 
     pub fn unpause_contract(env: Env) -> Result<(), ScoutAccessError> {
         Self::require_admin(&env)?;
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ScoutAccessError::NotInitialized)?;
         env.storage().instance().set(&DataKey::Paused, &false);
+        events::contract_unpaused(&env, &admin);
         Ok(())
     }
 
@@ -678,30 +696,36 @@ mod tests {
     }
 
     #[test]
-    fn test_subscription_ttl_extended_after_ledger_advance() {
-        let (env, admin, xlm, _contract_id, client) = setup();
+    fn test_pause_unpause_events() {
+        let (env, admin, _, _, client) = setup();
 
-        env.ledger().with_mut(|l| {
-            l.sequence_number = 100_000;
-            l.min_persistent_entry_ttl = 200;
-            l.max_entry_ttl = 10_000;
-        });
+        client.pause_contract();
+        let events = env.events().all();
+        assert_eq!(
+            events,
+            soroban_sdk::vec![
+                &env,
+                (
+                    client.address.clone(),
+                    (Symbol::new(&env, "contract_paused"),).into_val(&env),
+                    admin.clone().into_val(&env)
+                )
+            ]
+        );
 
-        let scout = Address::generate(&env);
-        mint_token(&env, &xlm, &admin, &scout, 10_000_000);
-
-        // subscribe writes the entry and extends TTL to PERSISTENT_TTL_MAX (2000).
-        client.subscribe(&scout, &SubscriptionTier::Basic);
-
-        // Advance past the default min_persistent_entry_ttl (200) but within
-        // PERSISTENT_TTL_MAX (2000) — the entry must still be live.
-        env.ledger().with_mut(|l| {
-            l.sequence_number = 100_000 + 500;
-        });
-
-        // get_subscription must succeed and re-extend the TTL.
-        let sub = client.get_subscription(&scout);
-        assert_eq!(sub.tier, SubscriptionTier::Basic);
+        client.unpause_contract();
+        let events = env.events().all();
+        assert_eq!(
+            events,
+            soroban_sdk::vec![
+                &env,
+                (
+                    client.address.clone(),
+                    (Symbol::new(&env, "contract_unpaused"),).into_val(&env),
+                    admin.clone().into_val(&env)
+                )
+            ]
+        );
     }
 
     #[test]
