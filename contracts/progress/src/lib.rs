@@ -423,4 +423,23 @@ mod tests {
         env.mock_auths(&[]);
         client.reset_player_level(&1u64, &ProgressLevel::Unverified);
     }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #8)")]
+    fn test_advance_level_history_counter_overflow() {
+        let (env, client) = setup();
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let caller = Address::generate(&env);
+        let player_id = 1u64;
+
+        env.as_contract(&client.address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::HistoryCounter(player_id), &u32::MAX);
+        });
+
+        client.advance_level(&caller, &player_id, &1u32);
+    }
 }
