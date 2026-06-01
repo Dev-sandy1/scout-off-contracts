@@ -7,6 +7,42 @@ use types::{ContractHealth, DataKey, FeeConfig, Subscription, SubscriptionTier, 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
+mod progress_contract {
+    use scoutchain_shared_types::ProgressLevel;
+    use soroban_sdk::{contractclient, contracterror, Address, Env};
+
+    #[contracterror]
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[repr(u32)]
+    pub enum Error {
+        AlreadyInitialized = 1,
+        NotInitialized = 2,
+        ContractPaused = 3,
+        Unauthorized = 4,
+        InvalidProgressTransition = 5,
+        AlreadyAtMaxLevel = 6,
+        PlayerNotFound = 7,
+    }
+
+    #[contractclient(name = "Client")]
+    pub trait ProgressContractClient {
+        fn advance_level(
+            env: Env,
+            caller: Address,
+            player_id: u64,
+            milestone_ref: u32,
+        ) -> Result<ProgressLevel, Error>;
+    }
+}
+
+// Instance TTL bump (Issue #111)
+const INSTANCE_TTL_MIN: u32 = 100;
+const INSTANCE_TTL_MAX: u32 = 500;
+
+// Persistent storage TTL bump for subscriptions / contact records.
+const PERSISTENT_TTL_MIN: u32 = 200;
+const PERSISTENT_TTL_MAX: u32 = 2_000;
+
 // ~30 days at 5 s/ledger; extend when TTL drops below half that.
 const TRIAL_TTL_THRESHOLD: u32 = 259_200;
 const TRIAL_TTL_EXTEND_TO: u32 = 518_400;
@@ -74,6 +110,13 @@ mod progress_contract {
 
 #[contractimpl]
 impl ScoutAccessContract {
+    #[inline(always)]
+    fn bump_instance_ttl(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_TTL_MIN, INSTANCE_TTL_MAX);
+    }
+
     // -------------------------------------------------------------------------
     // Admin
     // -------------------------------------------------------------------------
@@ -84,6 +127,7 @@ impl ScoutAccessContract {
         xlm_token: Address,
         fee_config: FeeConfig,
     ) -> Result<(), ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         if env.storage().instance().has(&DataKey::Initialized) {
             return Err(ScoutAccessError::AlreadyInitialized);
         }
@@ -100,6 +144,7 @@ impl ScoutAccessContract {
     }
 
     pub fn update_fee_config(env: Env, fee_config: FeeConfig) -> Result<(), ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         Self::require_admin(&env)?;
         Self::validate_fee_config(&fee_config)?;
         env.storage().instance().set(&DataKey::FeeConfig, &fee_config);
@@ -108,6 +153,7 @@ impl ScoutAccessContract {
     }
 
     pub fn withdraw_fees(env: Env, to: Address) -> Result<i128, ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         Self::require_admin(&env)?;
         let fees: i128 = env
             .storage()
@@ -126,6 +172,7 @@ impl ScoutAccessContract {
     }
 
     pub fn pause_contract(env: Env) -> Result<(), ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         Self::require_admin(&env)?;
         let admin: Address = env
             .storage()
@@ -138,6 +185,7 @@ impl ScoutAccessContract {
     }
 
     pub fn unpause_contract(env: Env) -> Result<(), ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         Self::require_admin(&env)?;
         let admin: Address = env
             .storage()
@@ -152,6 +200,7 @@ impl ScoutAccessContract {
     /// Register the progress contract address so log_trial_offer can
     /// atomically advance the player to Level 3 (admin only).
     pub fn set_progress_contract(env: Env, addr: Address) -> Result<(), ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         Self::require_admin(&env)?;
         env.storage()
             .instance()
@@ -169,6 +218,7 @@ impl ScoutAccessContract {
         scout: Address,
         tier: SubscriptionTier,
     ) -> Result<(), ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         Self::require_not_paused(&env)?;
         Self::require_initialized(&env)?;
         scout.require_auth();
@@ -231,6 +281,7 @@ impl ScoutAccessContract {
         scout: Address,
         player_id: u64,
     ) -> Result<(), ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         Self::require_not_paused(&env)?;
         scout.require_auth();
         Self::require_active_subscription(&env, &scout)?;
@@ -273,6 +324,7 @@ impl ScoutAccessContract {
         player_id: u64,
         details_hash: String,
     ) -> Result<u32, ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         Self::require_not_paused(&env)?;
         scout.require_auth();
 
@@ -339,6 +391,7 @@ impl ScoutAccessContract {
         env: Env,
         scout: Address,
     ) -> Result<Subscription, ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         let sub = env
             .storage()
             .persistent()
@@ -351,10 +404,12 @@ impl ScoutAccessContract {
     }
 
     pub fn get_fee_config(env: Env) -> FeeConfig {
+        Self::bump_instance_ttl(&env);
         Self::fee_config(&env)
     }
 
     pub fn get_accumulated_fees(env: Env) -> i128 {
+        Self::bump_instance_ttl(&env);
         env.storage()
             .instance()
             .get(&DataKey::AccumulatedFees)
@@ -362,6 +417,7 @@ impl ScoutAccessContract {
     }
 
     pub fn has_contacted(env: Env, scout: Address, player_id: u64) -> bool {
+        Self::bump_instance_ttl(&env);
         let key = DataKey::ContactRecord(player_id, scout);
         let exists = env.storage().persistent().has(&key);
         if exists {
@@ -377,6 +433,7 @@ impl ScoutAccessContract {
         player_id: u64,
         index: u32,
     ) -> Result<TrialOffer, ScoutAccessError> {
+        Self::bump_instance_ttl(&env);
         let offer = env
             .storage()
             .persistent()
@@ -389,6 +446,7 @@ impl ScoutAccessContract {
     }
 
     pub fn get_trial_count(env: Env, player_id: u64) -> u32 {
+        Self::bump_instance_ttl(&env);
         let count = env
             .storage()
             .persistent()
