@@ -119,8 +119,11 @@ impl ProgressContract {
     // Queries
     // -------------------------------------------------------------------------
 
-    pub fn get_level(env: Env, player_id: u64) -> ProgressLevel {
-        Self::get_current_level(&env, player_id)
+    pub fn get_level(env: Env, player_id: u64) -> Result<ProgressLevel, ProgressError> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::PlayerLevel(player_id))
+            .ok_or(ProgressError::PlayerNotFound)
     }
 
     pub fn get_history_count(env: Env, player_id: u64) -> u32 {
