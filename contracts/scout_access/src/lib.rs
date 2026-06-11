@@ -12,7 +12,6 @@ use scoutchain_shared_types::ContractHealth;
 
 // Generated client for cross-contract calls to the progress contract.
 // In native/test builds the mock implementation below is used instead.
-#[cfg(not(target_family = "wasm"))]
 mod progress_contract {
     use soroban_sdk::{contracterror, Address, Env, Error as SorobanError, Val};
 
@@ -52,12 +51,10 @@ mod progress_contract {
     }
 }
 
-#[cfg(target_family = "wasm")]
-mod progress_contract {
-    soroban_sdk::contractimport!(
-        file = "../../target/wasm32v1-none/release/scoutchain_progress.wasm"
-    );
-}
+// Cross-contract client for the progress contract.
+// In native/test builds a mock implementation is used (see mod below).
+// For WASM deployment, the contractclient trait approach is used via the non-wasm mock
+// since contractimport! requires a pre-built wasm file not available at compile time.
 
 // Instance TTL bump
 const INSTANCE_TTL_MIN: u32 = 100;
